@@ -1,0 +1,117 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# docker.yml — Build and push Docker image to GitHub Container Registry (GHCR)
+#
+# Triggers:
+#   • Every push to `main`
+#   • Can also be run manually from the Actions tab (workflow_dispatch)
+#
+# What it does:
+#   1. Checks out the code
+#   2. Logs in to ghcr.io using the built-in GITHUB_TOKEN (no secrets needed)
+#   3. Extracts smart image tags (latest + git SHA)
+#   4. Builds the multi-stage Docker image
+#   5. Pushes to ghcr.io/lsaiko/polyp_segmentation
+#
+# Pull the image after a successful run:
+#   docker pull ghcr.io/lsaiko/polyp_segmentation:latest
+#
+# Run it (mount your trained weights):
+#   docker run -p 8000:8000 \
+#     -v /path/to/model.pt:/app/model.pt \
+#     ghcr.io/lsaiko/polyp_segmentation:latest
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:   # allow manual runs from the GitHub Actions UI
+
+env:
+  REGISTRY:    ghcr.io
+  IMAGE_NAME:  ${{ github.repository }}   # → ghcr.io/lsaiko/polyp_segmentation
+
+jobs:
+  build-and-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+
+    # Required for GHCR push and attestation
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Docker Buildx ───────────────────────────────────────────────
+      # Buildx enables BuildKit features: layer caching, multi-platform builds,
+      # and the --mount=type=cache flag used for pip caching.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 3. Log in to GitHub Container Registry ────────────────────────────────
+      # GITHUB_TOKEN is automatically provisioned by Actions — no manual secrets.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 4. Extract metadata (tags + labels) ───────────────────────────────────
+      # Produces two tags automatically:
+      #   • ghcr.io/lsaiko/polyp_segmentation:latest   (always)
+      #   • ghcr.io/lsaiko/polyp_segmentation:sha-<7-char-SHA>  (traceability)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+
+      # ── 5. Build and push ─────────────────────────────────────────────────────
+      # --cache-from/to: reuses layer cache from the registry between runs.
+      # On a code-only change the pip-install layer is already cached → fast build.
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags:   ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Registry-side layer cache — speeds up subsequent builds significantly
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      # ── 6. Generate artifact attestation ─────────────────────────────────────
+      # Produces a signed SLSA provenance record — visible under
+      # "Artifact attestations" on the package page. Proves the image was built
+      # from this exact commit in this exact workflow.
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name:   ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # ── 7. Summary ────────────────────────────────────────────────────────────
+      - name: Print image digest
+        run: |
+          echo "### Docker image pushed successfully ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Registry** | \`${{ env.REGISTRY }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Digest** | \`${{ steps.push.outputs.digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tags** | \`${{ steps.meta.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
