@@ -30,13 +30,21 @@ on:
   workflow_dispatch:   # allow manual runs from the GitHub Actions UI
 
 env:
-  REGISTRY:    ghcr.io
-  IMAGE_NAME:  ${{ github.repository }}   # → ghcr.io/lsaiko/polyp_segmentation
+  REGISTRY: ghcr.io
+  # NOTE: github.repository keeps original casing (e.g. "LSaiko/polyp_segmentation").
+  # Docker registry refs MUST be lowercase, so we overwrite IMAGE_NAME in the
+  # "Normalise image name" step below before any docker action uses it.
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
     name: Build & Push
     runs-on: ubuntu-latest
+
+    # Opt into Node.js 24 now — avoids the Node.js 20 deprecation warning.
+    # Remove this line once the docker/* and actions/* actions ship native Node.js 24 runners.
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     # Required for GHCR push and attestation
     permissions:
@@ -49,6 +57,15 @@ jobs:
       # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ── 1b. Normalise image name to lowercase ─────────────────────────────────
+      # Docker registry names are case-sensitive and must be all-lowercase.
+      # github.repository preserves the owner's casing ("LSaiko/…"), so we
+      # overwrite IMAGE_NAME in $GITHUB_ENV for all subsequent steps.
+      - name: Normalise image name to lowercase
+        run: |
+          echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" \
+            >> $GITHUB_ENV
 
       # ── 2. Set up Docker Buildx ───────────────────────────────────────────────
       # Buildx enables BuildKit features: layer caching, multi-platform builds,
