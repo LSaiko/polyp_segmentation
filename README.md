@@ -45,11 +45,11 @@ Companies like Provation, Medtronic, and Fujifilm are actively building and depl
 | Custom loss functions | losses.py — DiceLoss, BCEDiceLoss | Dice/IoU losses are the clinical standard for segmentation |
 | U-Net architecture | model.py | Dominant architecture in medical image segmentation since 2015 |
 | Skip connections | model.py — DecoderBlock | Why U-Net outperforms vanilla CNNs |
-| Checkpoint management | train.py | Production model lifecycle: save best, resume training |
-| LR scheduling | train.py — ReduceLROnPlateau | Prevents oscillation; standard in production |
+| Checkpoint management | train_light.py | Production model lifecycle: save best, resume training |
+| LR scheduling | train_light.py — ReduceLROnPlateau | Prevents oscillation; standard in production |
 | Evaluation metrics | losses.py — iou_score, dice_score | Required metrics for clinical validation |
 | Explainability visualization | visualize.py | Required for FDA/CE regulatory submissions |
-| Hyperparameter experiments | experiments/ | ML discipline — systematic comparison, not guessing |
+| Hyperparameter experiments | run1_config.md, run2_config.md | ML discipline — systematic comparison, not guessing |
 
 ---
 
@@ -60,25 +60,28 @@ Companies like Provation, Medtronic, and Fujifilm are actively building and depl
     |-- model.py            <- U-Net architecture (built from scratch, fully explained)
     |-- dataset.py          <- Data loading pipeline with augmentation
     |-- losses.py           <- Dice loss, IoU metric, BCE+Dice combined loss
-    |-- train.py            <- Full training loop (production U-Net, GPU)
-    |-- train_light.py      <- Lightweight training loop (CPU-friendly)
+    |-- train_light.py      <- Training loop — CPU-friendly LightUNet
     |-- visualize.py        <- Overlay predictions, training curve plots
+    |-- export_model.py     <- Export checkpoint -> deployable model.pt (or ONNX)
+    |-- main.py             <- FastAPI serving layer (/health + /predict endpoints)
+    |-- Dockerfile          <- Two-stage production Docker image
     |
-    |-- experiments/
-    |   |-- run1_config.md  <- Baseline hyperparameter configuration
-    |   |-- run2_config.md  <- Tuned configuration with rationale
-    |   `-- COMPARISON.md   <- Side-by-side result analysis
+    |-- .github/workflows/
+    |   `-- docker.yml      <- CI/CD: build & push to GHCR on every push to main
     |
-    |-- outputs/
-    |   |-- run1_prediction_grid.png   <- Run 1 visual results
-    |   |-- run1_training_curves.png   <- Run 1 training history
-    |   |-- run2_prediction_grid.png   <- Run 2 visual results
-    |   |-- run2_training_curves.png   <- Run 2 training history
-    |   `-- comparison_report.png      <- Full side-by-side comparison
+    |-- run1_config.md      <- Baseline hyperparameter configuration
+    |-- run2_config.md      <- Tuned configuration with rationale
+    |-- COMPARISON.md       <- Side-by-side result analysis
     |
-    |-- data/kvasir-seg/    <- Dataset (not git-tracked — too large)
-    |-- checkpoints/        <- Saved weights (not git-tracked)
-    |-- logs/               <- Training history JSON
+    |-- run1_prediction_grid.png   <- Run 1 visual results
+    |-- run1_training_curves.png   <- Run 1 training history
+    |-- run2_prediction_grid.png   <- Run 2 visual results
+    |-- run2_training_curves.png   <- Run 2 training history
+    |-- comparison_report.png      <- Full side-by-side comparison
+    |
+    |-- data/kvasir-seg/    <- Dataset (not git-tracked — download separately)
+    |-- checkpoints/        <- Saved weights (not git-tracked — use export_model.py)
+    |-- logs/               <- Training history JSON (not git-tracked)
     `-- requirements.txt
 
 ---
@@ -117,7 +120,7 @@ IoU is stricter than Dice. A score of 0.80+ is publication-quality for polyp seg
 
 U-Net has a distinctive U shape with two halves. The encoder shrinks the image while extracting features. The decoder expands back to full size. Skip connections copy feature maps directly from encoder to decoder at matching scales — the key innovation. Without them the decoder only knows "a polyp exists somewhere." With them it knows precise edges and boundaries.
 
-### train.py — The training loop, one step at a time
+### train_light.py — The training loop, one step at a time
 
     logits = model(images)        # 1. forward pass — model makes predictions
     loss = loss_fn(logits, masks) # 2. how wrong was it?
@@ -180,9 +183,16 @@ Full production run (GPU + real Kvasir-SEG data):
     # Download: https://datasets.simula.no/kvasir-seg/
     # Place images in data/kvasir-seg/images/
     # Place masks  in data/kvasir-seg/masks/
-    # In train.py set: encoder_weights = "imagenet"
-    python train.py
+    python train_light.py          # or swap LightUNet for smp ResNet34 in model.py
     python visualize.py
+
+Serve via Docker after training:
+
+    python export_model.py         # extracts weights -> model.pt
+    docker build -t polyp-api .
+    docker run -p 8000:8000 -v $(pwd)/model.pt:/app/model.pt polyp-api
+    curl http://localhost:8000/health
+    curl -X POST http://localhost:8000/predict -F "file=@colon.jpg" --output mask.png
 
 ---
 

@@ -28,7 +28,6 @@ import matplotlib.patches as mpatches
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-import segmentation_models_pytorch as smp
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -358,12 +357,11 @@ def run_visualization(
 
     # ── Load model ──
     print(f"\nLoading model from {checkpoint_path}...")
-    model = smp.Unet(
-        encoder_name    = "resnet34",
-        encoder_weights = None,   # don't re-download ImageNet weights
-        in_channels     = 3,
-        classes         = 1,
-    ).to(device)
+    # LightUNet matches the architecture trained by train_light.py.
+    # To use the SMP ResNet34 backbone instead, import smp and
+    # replace this block with build_model(use_lightweight=False).
+    from model import LightUNet
+    model = LightUNet(in_channels=3, out_channels=1).to(device)
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state"])

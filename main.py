@@ -80,7 +80,22 @@ def _load_model() -> None:
 
     try:
         net = LightUNet(in_channels=3, out_channels=1)
-        state_dict = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
+        # weights_only=False lets us inspect the loaded object to detect format.
+        # train_light.py saves a full checkpoint dict:
+        #   {"epoch": N, "model_state": OrderedDict, "optimizer_state": ...}
+        # export_model.py / torch.save(model.state_dict(), path) saves the
+        # OrderedDict directly. Both formats are handled transparently here.
+        raw = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
+
+        if isinstance(raw, dict) and "model_state" in raw:
+            state_dict = raw["model_state"]
+            log.info(
+                "Full checkpoint detected — loading model_state key (epoch %s)",
+                raw.get("epoch", "?"),
+            )
+        else:
+            state_dict = raw   # plain state dict (from export_model.py)
+
         net.load_state_dict(state_dict)
         net.to(DEVICE).eval()
 

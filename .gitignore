@@ -1,0 +1,41 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── Model weights & checkpoints ───────────────────────────────────────────────
+# These are large binary files — store in cloud storage or a model registry,
+# not in git. Use export_model.py to produce a deployable model.pt when needed.
+checkpoints/
+model.pt
+*.pt
+*.pth
+*.onnx
+
+# ── Dataset ───────────────────────────────────────────────────────────────────
+# Kvasir-SEG is ~400 MB. Download from https://datasets.simula.no/kvasir-seg/
+data/
+
+# ── Training outputs ──────────────────────────────────────────────────────────
+outputs/
+logs/
+runs/
+mlruns/
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
